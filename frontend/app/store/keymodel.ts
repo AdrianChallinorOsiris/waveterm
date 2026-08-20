@@ -639,7 +639,20 @@ function registerGlobalKeys() {
         );
         return true;
     });
-    globalKeyMap.set("F2", () => {
+    globalKeyMap.set("F2", (waveEvent) => {
+        if (isTabWindow()) {
+            const blockId = getFocusedBlockInStaticTab();
+            if (blockId != null) {
+                const bcm = getBlockComponentModel(blockId);
+                const viewModel = bcm?.viewModel;
+                if (viewModel?.viewType === "preview" && viewModel.keyDownHandler) {
+                    const handled = viewModel.keyDownHandler(waveEvent);
+                    if (handled) {
+                        return true;
+                    }
+                }
+            }
+        }
         const tabModel = getActiveTabModel();
         if (tabModel?.startRenameCallback != null) {
             tabModel.startRenameCallback();
