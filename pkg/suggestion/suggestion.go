@@ -399,6 +399,9 @@ func fetchFileSuggestions(ctx context.Context, data wshrpc.FetchSuggestionsData)
 		}
 		de := result.Entry
 		fileName := de.Name()
+		if data.FileDirOnly && !de.IsDir() {
+			continue
+		}
 		var score int
 		var candidatePositions []int
 
