@@ -5,7 +5,9 @@ import { Tooltip } from "@/app/element/tooltip";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useWaveEnv, WaveEnv, WaveEnvSubset } from "@/app/waveenv/waveenv";
 import { shouldIncludeWidgetForWorkspace } from "@/app/workspace/widgetfilter";
+import { getApi } from "@/store/global";
 import { modalsModel } from "@/store/modalmodel";
+import { resolveFilesCreatePath } from "@/util/launchcwd";
 import { fireAndForget, isBlank, makeIconClass } from "@/util/util";
 import {
     autoUpdate,
@@ -56,7 +58,14 @@ type WidgetPropsType = {
 };
 
 async function handleWidgetSelect(widget: WidgetConfigType, env: WidgetsEnv) {
-    const blockDef = widget.blockdef;
+    const src = widget.blockdef;
+    const blockDef: BlockDef = {
+        ...src,
+        meta: { ...(src?.meta ?? {}) },
+    };
+    if (blockDef.meta?.view === "preview") {
+        blockDef.meta.file = resolveFilesCreatePath(blockDef.meta.file, getApi().getEnv("WAVETERM_LAUNCH_CWD"));
+    }
     env.createBlock(blockDef, widget.magnified);
 }
 

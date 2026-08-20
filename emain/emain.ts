@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { RpcApi } from "@/app/store/wshclientapi";
+import { isUsableLaunchCwd } from "@/util/launchcwd";
 import * as electron from "electron";
 import { focusedBuilderWindow, getAllBuilderWindows } from "emain/emain-builder";
 import { globalEvents } from "emain/emain-events";
+import * as fs from "node:fs";
 import { sprintf } from "sprintf-js";
 import * as services from "../frontend/app/store/services";
 import { initElectronWshrpc, shutdownWshrpc } from "../frontend/app/store/wshrpcutil-base";
@@ -32,6 +34,7 @@ import { initMenuEventSubscriptions, makeAndSetAppMenu, makeDockTaskbar } from "
 import {
     checkIfRunningUnderARM64Translation,
     getElectronAppBasePath,
+    getElectronAppResourcesPath,
     getElectronAppUnpackedBasePath,
     getWaveConfigDir,
     getWaveDataDir,
@@ -371,7 +374,23 @@ globalEvents.on("windows-updated", () => {
     makeAndSetAppMenu();
 });
 
+function applyLaunchCwdEnv() {
+    const cwd = process.cwd();
+    let isDirectory = false;
+    try {
+        isDirectory = fs.statSync(cwd).isDirectory();
+    } catch {
+        return;
+    }
+    const appPaths = [getElectronAppUnpackedBasePath(), getElectronAppResourcesPath()].filter(Boolean);
+    if (!isUsableLaunchCwd(cwd, isDirectory, appPaths)) {
+        return;
+    }
+    process.env.WAVETERM_LAUNCH_CWD = cwd;
+}
+
 async function appMain() {
+    applyLaunchCwdEnv();
     // Set disableHardwareAcceleration as early as possible, if required.
     const launchSettings = getLaunchSettings();
     if (launchSettings?.["window:disablehardwareacceleration"]) {
