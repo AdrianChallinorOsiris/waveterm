@@ -17,7 +17,13 @@ export function isPathInside(child: string, parent: string): boolean {
         return false;
     }
     const rel = path.relative(path.resolve(parent), path.resolve(child));
-    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+    if (rel === "") {
+        return true;
+    }
+    if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) {
+        return false;
+    }
+    return true;
 }
 
 export function isUsableLaunchCwd(cwd: string, isDirectory: boolean, appPaths: string[]): boolean {

@@ -22,6 +22,7 @@ test("isFilesystemRoot rejects slash and drive root", () => {
 test("isPathInside treats equal and nested paths as inside", () => {
     assert(isPathInside("/app", "/app"));
     assert(isPathInside("/app/bin", "/app"));
+    assert(isPathInside("/app/..hidden", "/app"));
     assert(!isPathInside("/Users/work", "/app"));
     assert(!isPathInside("/app-other", "/app"));
 });
