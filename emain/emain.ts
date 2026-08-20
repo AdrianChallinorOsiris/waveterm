@@ -380,10 +380,12 @@ function applyLaunchCwdEnv() {
     try {
         isDirectory = fs.statSync(cwd).isDirectory();
     } catch {
+        delete process.env.WAVETERM_LAUNCH_CWD;
         return;
     }
     const appPaths = [getElectronAppUnpackedBasePath(), getElectronAppResourcesPath()].filter(Boolean);
     if (!isUsableLaunchCwd(cwd, isDirectory, appPaths)) {
+        delete process.env.WAVETERM_LAUNCH_CWD;
         return;
     }
     process.env.WAVETERM_LAUNCH_CWD = cwd;

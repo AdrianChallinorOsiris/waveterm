@@ -5,6 +5,7 @@ import { assert, test } from "vitest";
 import {
     isAlreadyExistsMoveError,
     isParentDirEntry,
+    isSameMovePath,
     joinMoveDest,
     resolveTypedDestPath,
     sourceBasename,
@@ -36,4 +37,13 @@ test("resolveTypedDestPath keeps abs and tilde, joins relatives", () => {
 test("isAlreadyExistsMoveError matches remote move wording", () => {
     assert(isAlreadyExistsMoveError(`destination "/tmp/foo" already exists`));
     assert(!isAlreadyExistsMoveError("permission denied"));
+});
+
+test("isSameMovePath ignores trailing slashes", () => {
+    assert(isSameMovePath("/tmp/foo.txt", "/tmp/foo.txt"));
+    assert(isSameMovePath("/tmp/foo", "/tmp/foo/"));
+    assert(isSameMovePath("/tmp/foo/", "/tmp/foo"));
+    assert(!isSameMovePath("/tmp/foo", "/tmp/bar"));
+    assert(!isSameMovePath("", "/tmp/foo"));
+    assert(!isSameMovePath("/tmp/foo", ""));
 });

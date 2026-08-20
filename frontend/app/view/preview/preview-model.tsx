@@ -23,6 +23,7 @@ import { makeDirectoryDefaultMenuItems, recursiveError } from "./preview-directo
 import {
     isAlreadyExistsMoveError,
     isParentDirEntry,
+    isSameMovePath,
     joinMoveDest,
     resolveTypedDestPath,
     sourceBasename,
@@ -569,7 +570,7 @@ export class PreviewModel implements ViewModel {
         globalStore.set(this.openFileModal, isOpen);
         globalStore.set(this.openFileError, errorMsg);
         if (isOpen) {
-            globalStore.set(this.moveDestModal, false);
+            this.closeMoveDestModal();
             globalStore.set(this.openFileModalDelay, true);
         } else {
             const delayVal = globalStore.get(this.openFileModalDelay);
@@ -610,6 +611,13 @@ export class PreviewModel implements ViewModel {
         }
         const basename = sourceBasename(source.path);
         const finalDest = joinMoveDest(destDir, basename);
+        if (isSameMovePath(source.path, finalDest)) {
+            globalStore.set(this.errorMsgAtom, {
+                status: "Move Failed",
+                text: "Already in this directory",
+            });
+            return;
+        }
         let srcuri = await this.formatRemoteUri(source.path, globalStore.get);
         if (source.isdir) {
             srcuri += "/";
@@ -711,7 +719,7 @@ export class PreviewModel implements ViewModel {
                     const info = await this.env.rpc.FileInfoCommand(TabRpcClient, {
                         info: { path: await this.formatRemoteUri(typedPath, globalStore.get) },
                     });
-                    if (info == null) {
+                    if (info == null || info.notfound) {
                         globalStore.set(this.errorMsgAtom, {
                             status: "Directory not found",
                             text: typedPath,

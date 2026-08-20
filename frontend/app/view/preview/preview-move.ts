@@ -35,3 +35,13 @@ export function resolveTypedDestPath(query: string, currentDir: string): string 
 export function isAlreadyExistsMoveError(errorText: string): boolean {
     return (errorText ?? "").includes("already exists");
 }
+
+export function isSameMovePath(src: string, dest: string): boolean {
+    const normalize = (p: string) => (p ?? "").replace(/\/+$/, "");
+    const a = normalize(src);
+    const b = normalize(dest);
+    if (isBlank(a) || isBlank(b)) {
+        return false;
+    }
+    return a === b;
+}
