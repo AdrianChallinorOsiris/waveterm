@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +34,18 @@ type PortableLayout []struct {
 	Focused  bool              `json:"focused"`
 }
 
+func FilesPathForCreate(launchCwd string) string {
+	launchCwd = strings.TrimSpace(launchCwd)
+	if launchCwd == "" {
+		return "~"
+	}
+	info, err := os.Stat(launchCwd)
+	if err != nil || !info.IsDir() {
+		return "~"
+	}
+	return launchCwd
+}
+
 func GetStarterLayout() PortableLayout {
 	return PortableLayout{
 		{IndexArr: []int{0}, BlockDef: &waveobj.BlockDef{
@@ -54,7 +68,7 @@ func GetStarterLayout() PortableLayout {
 		{IndexArr: []int{1, 2}, BlockDef: &waveobj.BlockDef{
 			Meta: waveobj.MetaMapType{
 				waveobj.MetaKey_View: "preview",
-				waveobj.MetaKey_File: "~",
+				waveobj.MetaKey_File: FilesPathForCreate(os.Getenv("WAVETERM_LAUNCH_CWD")),
 			},
 		}},
 	}
