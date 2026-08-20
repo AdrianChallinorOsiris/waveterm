@@ -603,8 +603,7 @@ export class PreviewModel implements ViewModel {
         globalStore.set(this.moveSource, null);
     }
 
-    async executeMoveToDirectory(destDir: string) {
-        const source = globalStore.get(this.moveSource);
+    async executeMoveToDirectory(destDir: string, source: FileInfo) {
         if (source == null || isBlank(destDir)) {
             return;
         }
@@ -659,13 +658,20 @@ export class PreviewModel implements ViewModel {
                             text: "Delete Recursively",
                             onClick: () =>
                                 fireAndForget(async () => {
-                                    await this.env.rpc.FileDeleteCommand(TabRpcClient, {
-                                        path: formattedPath,
-                                        recursive: true,
-                                    });
-                                    await this.env.rpc.FileMoveCommand(TabRpcClient, { srcuri, desturi });
-                                    this.closeMoveDestModal();
-                                    this.refreshCallback?.();
+                                    try {
+                                        await this.env.rpc.FileDeleteCommand(TabRpcClient, {
+                                            path: formattedPath,
+                                            recursive: true,
+                                        });
+                                        await this.env.rpc.FileMoveCommand(TabRpcClient, { srcuri, desturi });
+                                        this.closeMoveDestModal();
+                                        this.refreshCallback?.();
+                                    } catch (err) {
+                                        globalStore.set(this.errorMsgAtom, {
+                                            status: "Move Failed",
+                                            text: `${err}`,
+                                        });
+                                    }
                                 }),
                         },
                     ],
@@ -678,12 +684,20 @@ export class PreviewModel implements ViewModel {
             });
             return;
         }
-        await this.env.rpc.FileMoveCommand(TabRpcClient, { srcuri, desturi });
-        this.closeMoveDestModal();
-        this.refreshCallback?.();
+        try {
+            await this.env.rpc.FileMoveCommand(TabRpcClient, { srcuri, desturi });
+            this.closeMoveDestModal();
+            this.refreshCallback?.();
+        } catch (e) {
+            globalStore.set(this.errorMsgAtom, {
+                status: "Move Failed",
+                text: `${e}`,
+            });
+        }
     }
 
     handleMoveSelect(s: SuggestionType, queryStr: string): boolean {
+        const source = globalStore.get(this.moveSource);
         fireAndForget(async () => {
             if (s == null) {
                 if (isBlank(queryStr)) {
@@ -710,7 +724,7 @@ export class PreviewModel implements ViewModel {
                         });
                         return;
                     }
-                    await this.executeMoveToDirectory(info.path);
+                    await this.executeMoveToDirectory(info.path, source);
                 } catch (e) {
                     globalStore.set(this.errorMsgAtom, {
                         status: "Directory not found",
@@ -726,7 +740,7 @@ export class PreviewModel implements ViewModel {
                 });
                 return;
             }
-            await this.executeMoveToDirectory(s["file:path"]);
+            await this.executeMoveToDirectory(s["file:path"], source);
         });
         return true;
     }
