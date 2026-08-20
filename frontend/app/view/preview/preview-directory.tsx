@@ -44,6 +44,7 @@ import {
     overwriteError,
 } from "./preview-directory-utils";
 import { type PreviewModel } from "./preview-model";
+import { isParentDirEntry } from "./preview-move";
 import type { PreviewEnv } from "./previewenv";
 
 const PageJumpSize = 20;
@@ -208,6 +209,13 @@ function DirectoryTable({
         },
         [model, setErrorMsg]
     );
+
+    useEffect(() => {
+        model.renameFocusedEntry = updateName;
+        return () => {
+            model.renameFocusedEntry = null;
+        };
+    }, [model, updateName]);
 
     const initialSorting = defaultSort === "modtime" ? [{ id: "modtime", desc: true }] : [{ id: "name", desc: false }];
 
@@ -381,15 +389,26 @@ function TableBody({
                         table.options.meta.newDirectory();
                     },
                 },
-                {
-                    label: "Rename",
-                    click: () => {
-                        table.options.meta.updateName(finfo.path, finfo.isdir);
+            ];
+            if (!isParentDirEntry(finfo)) {
+                menu.push(
+                    { type: "separator" },
+                    {
+                        label: "Rename",
+                        click: () => {
+                            table.options.meta.updateName(finfo.path, finfo.isdir);
+                        },
                     },
-                },
-                {
-                    type: "separator",
-                },
+                    {
+                        label: "Move to…",
+                        click: () => {
+                            model.openMoveDestModal(finfo);
+                        },
+                    }
+                );
+            }
+            menu.push(
+                { type: "separator" },
                 {
                     label: "Copy File Name",
                     click: () => fireAndForget(() => navigator.clipboard.writeText(fileName)),
@@ -642,6 +661,16 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 globalStore.set(model.directorySearchActive, false);
                 return;
             }
+            if (checkKeyPressed(waveEvent, "F2")) {
+                const focused = filteredData[focusIndex];
+                if (focused == null || isParentDirEntry(focused)) {
+                    return true;
+                }
+                if (model.renameFocusedEntry != null) {
+                    model.renameFocusedEntry(focused.path, focused.isdir);
+                }
+                return true;
+            }
             if (checkKeyPressed(waveEvent, "ArrowUp")) {
                 setFocusIndex((idx) => Math.max(idx - 1, 0));
                 return true;
@@ -692,7 +721,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         return () => {
             model.directoryKeyDownHandler = null;
         };
-    }, [filteredData, selectedPath, searchText]);
+    }, [filteredData, selectedPath, searchText, focusIndex]);
 
     useEffect(() => {
         if (filteredData.length != 0 && focusIndex > filteredData.length - 1) {

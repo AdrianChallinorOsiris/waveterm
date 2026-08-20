@@ -176,6 +176,7 @@ export class PreviewModel implements ViewModel {
     directorySearchActive: PrimitiveAtom<boolean>;
     refreshCallback: () => void;
     directoryKeyDownHandler: (waveEvent: WaveKeyboardEvent) => boolean;
+    renameFocusedEntry: (path: string, isDir: boolean) => void;
     codeEditKeyDownHandler: (waveEvent: WaveKeyboardEvent) => boolean;
     env: PreviewEnv;
 
