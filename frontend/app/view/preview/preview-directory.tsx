@@ -424,8 +424,8 @@ function TableBody({
                 {
                     label: "Copy Full File Name (Shell Quoted)",
                     click: () => fireAndForget(() => navigator.clipboard.writeText(shellQuote([finfo.path]))),
-                },
-            ];
+                }
+            );
             addOpenMenuItems(menu, conn, finfo);
             menu.push(
                 {
