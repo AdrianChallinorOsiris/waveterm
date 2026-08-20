@@ -19,7 +19,14 @@ import { loadable } from "jotai/utils";
 import type * as MonacoTypes from "monaco-editor";
 import { createRef } from "react";
 import { PreviewView } from "./preview";
-import { makeDirectoryDefaultMenuItems } from "./preview-directory-utils";
+import { makeDirectoryDefaultMenuItems, recursiveError } from "./preview-directory-utils";
+import {
+    isAlreadyExistsMoveError,
+    isParentDirEntry,
+    joinMoveDest,
+    resolveTypedDestPath,
+    sourceBasename,
+} from "./preview-move";
 import type { PreviewEnv } from "./previewenv";
 
 // TODO drive this using config
@@ -157,6 +164,8 @@ export class PreviewModel implements ViewModel {
     openFileModalDelay: PrimitiveAtom<boolean>;
     openFileError: PrimitiveAtom<string>;
     openFileModalGiveFocusRef: React.RefObject<() => boolean>;
+    moveDestModal: PrimitiveAtom<boolean>;
+    moveSource: PrimitiveAtom<FileInfo>;
 
     markdownShowToc: PrimitiveAtom<boolean>;
 
@@ -185,6 +194,8 @@ export class PreviewModel implements ViewModel {
         this.openFileModalDelay = atom(false);
         this.openFileError = atom(null) as PrimitiveAtom<string>;
         this.openFileModalGiveFocusRef = createRef();
+        this.moveDestModal = atom(false);
+        this.moveSource = atom(null) as PrimitiveAtom<FileInfo>;
         this.manageConnection = atom(true);
         this.blockAtom = this.env.wos.getWaveObjectAtom<Block>(`block:${blockId}`);
         this.markdownShowToc = atom(false);
@@ -557,6 +568,7 @@ export class PreviewModel implements ViewModel {
         globalStore.set(this.openFileModal, isOpen);
         globalStore.set(this.openFileError, errorMsg);
         if (isOpen) {
+            globalStore.set(this.moveDestModal, false);
             globalStore.set(this.openFileModalDelay, true);
         } else {
             const delayVal = globalStore.get(this.openFileModalDelay);
@@ -575,6 +587,148 @@ export class PreviewModel implements ViewModel {
             return;
         }
         this.updateOpenFileModalAndError(!modalOpen);
+    }
+
+    openMoveDestModal(finfo: FileInfo) {
+        if (finfo == null || isParentDirEntry(finfo)) {
+            return;
+        }
+        this.updateOpenFileModalAndError(false);
+        globalStore.set(this.moveSource, finfo);
+        globalStore.set(this.moveDestModal, true);
+    }
+
+    closeMoveDestModal() {
+        globalStore.set(this.moveDestModal, false);
+        globalStore.set(this.moveSource, null);
+    }
+
+    async executeMoveToDirectory(destDir: string) {
+        const source = globalStore.get(this.moveSource);
+        if (source == null || isBlank(destDir)) {
+            return;
+        }
+        const basename = sourceBasename(source.path);
+        const finalDest = joinMoveDest(destDir, basename);
+        let srcuri = await this.formatRemoteUri(source.path, globalStore.get);
+        if (source.isdir) {
+            srcuri += "/";
+        }
+        const desturi = await this.formatRemoteUri(finalDest, globalStore.get);
+        try {
+            await this.env.rpc.FileMoveCommand(TabRpcClient, { srcuri, desturi });
+            this.closeMoveDestModal();
+            this.refreshCallback?.();
+        } catch (e) {
+            const errorText = `${e}`;
+            console.warn("Move failed:", errorText);
+            if (isAlreadyExistsMoveError(errorText)) {
+                globalStore.set(this.errorMsgAtom, {
+                    status: "Confirm Replace",
+                    text: "An item with this name already exists in the destination. Replace it?",
+                    level: "warning",
+                    buttons: [
+                        {
+                            text: "Replace",
+                            onClick: () => fireAndForget(() => this.replaceThenMove(finalDest, srcuri, desturi)),
+                        },
+                    ],
+                });
+                return;
+            }
+            globalStore.set(this.errorMsgAtom, {
+                status: "Move Failed",
+                text: errorText,
+            });
+        }
+    }
+
+    async replaceThenMove(finalDest: string, srcuri: string, desturi: string) {
+        const formattedPath = await this.formatRemoteUri(finalDest, globalStore.get);
+        try {
+            await this.env.rpc.FileDeleteCommand(TabRpcClient, { path: formattedPath, recursive: false });
+        } catch (e) {
+            const errorText = `${e}`;
+            if (errorText.includes(recursiveError)) {
+                globalStore.set(this.errorMsgAtom, {
+                    status: "Confirm Delete Directory",
+                    text: "Replacing this item requires deleting a directory. Proceed?",
+                    level: "warning",
+                    buttons: [
+                        {
+                            text: "Delete Recursively",
+                            onClick: () =>
+                                fireAndForget(async () => {
+                                    await this.env.rpc.FileDeleteCommand(TabRpcClient, {
+                                        path: formattedPath,
+                                        recursive: true,
+                                    });
+                                    await this.env.rpc.FileMoveCommand(TabRpcClient, { srcuri, desturi });
+                                    this.closeMoveDestModal();
+                                    this.refreshCallback?.();
+                                }),
+                        },
+                    ],
+                });
+                return;
+            }
+            globalStore.set(this.errorMsgAtom, {
+                status: "Move Failed",
+                text: errorText,
+            });
+            return;
+        }
+        await this.env.rpc.FileMoveCommand(TabRpcClient, { srcuri, desturi });
+        this.closeMoveDestModal();
+        this.refreshCallback?.();
+    }
+
+    handleMoveSelect(s: SuggestionType, queryStr: string): boolean {
+        fireAndForget(async () => {
+            if (s == null) {
+                if (isBlank(queryStr)) {
+                    this.closeMoveDestModal();
+                    return;
+                }
+                const currentDir = (await globalStore.get(this.statFile))?.path;
+                const typedPath = resolveTypedDestPath(queryStr, currentDir);
+                try {
+                    const info = await this.env.rpc.FileInfoCommand(TabRpcClient, {
+                        info: { path: await this.formatRemoteUri(typedPath, globalStore.get) },
+                    });
+                    if (info == null) {
+                        globalStore.set(this.errorMsgAtom, {
+                            status: "Directory not found",
+                            text: typedPath,
+                        });
+                        return;
+                    }
+                    if (!info.isdir) {
+                        globalStore.set(this.errorMsgAtom, {
+                            status: "Destination must be a directory",
+                            text: typedPath,
+                        });
+                        return;
+                    }
+                    await this.executeMoveToDirectory(info.path);
+                } catch (e) {
+                    globalStore.set(this.errorMsgAtom, {
+                        status: "Directory not found",
+                        text: `${e}`,
+                    });
+                }
+                return;
+            }
+            if (s["file:mimetype"] != "directory") {
+                globalStore.set(this.errorMsgAtom, {
+                    status: "Destination must be a directory",
+                    text: s["file:path"] ?? "",
+                });
+                return;
+            }
+            await this.executeMoveToDirectory(s["file:path"]);
+        });
+        return true;
     }
 
     async goHistory(newPath: string) {

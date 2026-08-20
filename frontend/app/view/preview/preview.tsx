@@ -68,7 +68,8 @@ const fetchSuggestions = async (
     env: PreviewEnv,
     model: PreviewModel,
     query: string,
-    reqContext: SuggestionRequestContext
+    reqContext: SuggestionRequestContext,
+    dirOnly = false
 ): Promise<FetchSuggestionsResponse> => {
     const conn = await globalStore.get(model.connection);
     let route = makeConnRoute(conn);
@@ -90,6 +91,7 @@ const fetchSuggestions = async (
         widgetid: reqContext.widgetid,
         reqnum: reqContext.reqnum,
         "file:connection": conn,
+        "file:dironly": dirOnly,
     };
     return await env.rpc.FetchSuggestionsCommand(TabRpcClient, sdata, {
         route: route,
@@ -162,6 +164,15 @@ function PreviewView({
                 onTab={handleTab}
                 fetchSuggestions={fetchSuggestionsFn}
                 placeholderText="Open File..."
+            />
+            <BlockHeaderSuggestionControl
+                blockRef={blockRef}
+                openAtom={model.moveDestModal}
+                onClose={() => model.closeMoveDestModal()}
+                onSelect={(s, queryStr) => model.handleMoveSelect(s, queryStr)}
+                onTab={handleTab}
+                fetchSuggestions={async (query, ctx) => fetchSuggestions(env, model, query, ctx, true)}
+                placeholderText="Move to directory..."
             />
         </>
     );
