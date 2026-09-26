@@ -42,6 +42,7 @@ import {
     makeDirectoryDefaultMenuItems,
     mergeError,
     overwriteError,
+    shouldNativeFileDrag,
 } from "./preview-directory-utils";
 import { type PreviewModel } from "./preview-model";
 import { isParentDirEntry } from "./preview-move";
@@ -518,8 +519,9 @@ type TableRowProps = {
 };
 
 function TableRow({ model, row, focusIndex, setFocusIndex, setSearch, idx, handleFileContextMenu }: TableRowProps) {
+    const env = useWaveEnv<PreviewEnv>();
     const dirPath = useAtomValue(model.statFilePath);
-    const connection = useAtomValue(model.connection);
+    const connection = useAtomValue(model.connectionImmediate);
 
     const dragItem: DraggedFile = {
         relName: row.getValue("name") as string,
@@ -536,12 +538,30 @@ function TableRow({ model, row, focusIndex, setFocusIndex, setSearch, idx, handl
         [dragItem]
     );
 
+    const rowElemRef = useRef<HTMLDivElement>(null);
     const dragRef = useCallback(
         (node: HTMLDivElement | null) => {
+            rowElemRef.current = node;
             drag(node);
         },
         [drag]
     );
+
+    useEffect(() => {
+        const node = rowElemRef.current;
+        if (node == null) {
+            return;
+        }
+        const onDragStart = (e: DragEvent) => {
+            if (!shouldNativeFileDrag(connection, row.original)) {
+                return;
+            }
+            e.preventDefault();
+            env.electron.startFileDrag(row.original.path);
+        };
+        node.addEventListener("dragstart", onDragStart, true);
+        return () => node.removeEventListener("dragstart", onDragStart, true);
+    }, [connection, env.electron, row.original]);
 
     return (
         <div

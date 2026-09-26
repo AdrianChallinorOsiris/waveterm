@@ -3,14 +3,22 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { fireAndForget, isBlank } from "@/util/util";
+import { fireAndForget, isBlank, isLocalConnName } from "@/util/util";
 import dayjs from "dayjs";
 import React from "react";
 import { type PreviewModel } from "./preview-model";
+import { isParentDirEntry } from "./preview-move";
 
 export const recursiveError = "recursive flag must be set for directory operations";
 export const overwriteError = "set overwrite flag to delete the existing file";
 export const mergeError = "set overwrite flag to delete the existing contents or set merge flag to merge the contents";
+
+export function shouldNativeFileDrag(connection: string, finfo: FileInfo): boolean {
+    if (finfo == null || !isLocalConnName(connection) || finfo.isdir || isParentDirEntry(finfo)) {
+        return false;
+    }
+    return finfo.path != null && finfo.path != "";
+}
 
 export const displaySuffixes = {
     B: "b",

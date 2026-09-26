@@ -20,7 +20,7 @@ import {
     setWasActive,
 } from "./emain-activity";
 import { createBuilderWindow, getAllBuilderWindows, getBuilderWindowByWebContentsId } from "./emain-builder";
-import { callWithOriginalXdgCurrentDesktopAsync, unamePlatform } from "./emain-platform";
+import { callWithOriginalXdgCurrentDesktopAsync, getElectronAppBasePath, unamePlatform } from "./emain-platform";
 import { getWaveTabViewByWebContentsId } from "./emain-tabview";
 import { handleCtrlShiftState } from "./emain-util";
 import { getWaveVersion } from "./emain-wavesrv";
@@ -28,9 +28,42 @@ import { createNewWaveWindow, getWaveWindowByWebContentsId } from "./emain-windo
 import { ElectronWshClient } from "./emain-wsh";
 
 const electronApp = electron.app;
+const EmptyDragIconPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64"
+);
 
 let webviewFocusId: number = null;
 let webviewKeys: string[] = [];
+let fileDragIcon: electron.NativeImage = null;
+
+function resolveLocalDragPath(filePath: string): string {
+    const home = electronApp.getPath("home");
+    let resolved = filePath;
+    if (resolved === "~") {
+        resolved = home;
+    } else if (resolved.startsWith("~/") || resolved.startsWith("~\\")) {
+        resolved = path.join(home, resolved.slice(2));
+    }
+    if (!path.isAbsolute(resolved)) {
+        return null;
+    }
+    return path.normalize(resolved);
+}
+
+function getFileDragIcon(): electron.NativeImage {
+    if (fileDragIcon != null && !fileDragIcon.isEmpty()) {
+        return fileDragIcon;
+    }
+    const iconPath = path.join(getElectronAppBasePath(), "public/logos/wave-logo-256.png");
+    fileDragIcon = electron.nativeImage.createFromPath(iconPath);
+    if (fileDragIcon.isEmpty()) {
+        fileDragIcon = electron.nativeImage.createFromBuffer(EmptyDragIconPng);
+    } else {
+        fileDragIcon = fileDragIcon.resize({ width: 32, height: 32 });
+    }
+    return fileDragIcon;
+}
 
 export function openBuilderWindow(appId?: string) {
     const normalizedAppId = appId || "";
@@ -403,6 +436,28 @@ export function initIpcHandlers() {
                 })
             )
         );
+    });
+
+    electron.ipcMain.on("start-file-drag", (event, filePath: string) => {
+        try {
+            if (typeof filePath !== "string" || filePath == "") {
+                event.returnValue = false;
+                return;
+            }
+            const resolved = resolveLocalDragPath(filePath);
+            if (resolved == null || !fs.existsSync(resolved)) {
+                event.returnValue = false;
+                return;
+            }
+            event.sender.startDrag({
+                file: resolved,
+                icon: getFileDragIcon(),
+            });
+            event.returnValue = true;
+        } catch (e) {
+            console.error("start-file-drag failed", e);
+            event.returnValue = false;
+        }
     });
 
     electron.ipcMain.on("set-window-init-status", (event, status: "ready" | "wave-ready") => {
