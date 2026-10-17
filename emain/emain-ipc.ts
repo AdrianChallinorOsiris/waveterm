@@ -28,10 +28,6 @@ import { createNewWaveWindow, getWaveWindowByWebContentsId } from "./emain-windo
 import { ElectronWshClient } from "./emain-wsh";
 
 const electronApp = electron.app;
-const EmptyDragIconPng = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-    "base64"
-);
 
 let webviewFocusId: number = null;
 let webviewKeys: string[] = [];
@@ -51,17 +47,45 @@ function resolveLocalDragPath(filePath: string): string {
     return path.normalize(resolved);
 }
 
+function loadDragIconFromDisk(): electron.NativeImage | null {
+    const base = getElectronAppBasePath();
+    const candidates = [
+        path.join(base, "public/logos/wave-logo-256.png"),
+        path.join(base, "../public/logos/wave-logo-256.png"),
+    ];
+    for (const iconPath of candidates) {
+        if (!fs.existsSync(iconPath)) {
+            continue;
+        }
+        const image = electron.nativeImage.createFromPath(iconPath);
+        if (!image.isEmpty()) {
+            return image.resize({ width: 32, height: 32 });
+        }
+    }
+    return null;
+}
+
+function createSolidDragIcon(): electron.NativeImage {
+    const size = 32;
+    const png = new PNG({ width: size, height: size });
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const i = (size * y + x) * 4;
+            png.data[i] = 0x3d;
+            png.data[i + 1] = 0x8b;
+            png.data[i + 2] = 0xd4;
+            png.data[i + 3] = 255;
+        }
+    }
+    return electron.nativeImage.createFromBuffer(PNG.sync.write(png));
+}
+
 function getFileDragIcon(): electron.NativeImage {
     if (fileDragIcon != null && !fileDragIcon.isEmpty()) {
         return fileDragIcon;
     }
-    const iconPath = path.join(getElectronAppBasePath(), "public/logos/wave-logo-256.png");
-    fileDragIcon = electron.nativeImage.createFromPath(iconPath);
-    if (fileDragIcon.isEmpty()) {
-        fileDragIcon = electron.nativeImage.createFromBuffer(EmptyDragIconPng);
-    } else {
-        fileDragIcon = fileDragIcon.resize({ width: 32, height: 32 });
-    }
+    const fromDisk = loadDragIconFromDisk();
+    fileDragIcon = fromDisk != null && !fromDisk.isEmpty() ? fromDisk : createSolidDragIcon();
     return fileDragIcon;
 }
 
@@ -441,22 +465,24 @@ export function initIpcHandlers() {
     electron.ipcMain.on("start-file-drag", (event, filePath: string) => {
         try {
             if (typeof filePath !== "string" || filePath == "") {
-                event.returnValue = false;
                 return;
             }
             const resolved = resolveLocalDragPath(filePath);
             if (resolved == null || !fs.existsSync(resolved)) {
-                event.returnValue = false;
+                console.error("start-file-drag: file not found", filePath);
+                return;
+            }
+            const icon = getFileDragIcon();
+            if (icon.isEmpty()) {
+                console.error("start-file-drag: drag icon is empty");
                 return;
             }
             event.sender.startDrag({
                 file: resolved,
-                icon: getFileDragIcon(),
+                icon,
             });
-            event.returnValue = true;
         } catch (e) {
             console.error("start-file-drag failed", e);
-            event.returnValue = false;
         }
     });
 

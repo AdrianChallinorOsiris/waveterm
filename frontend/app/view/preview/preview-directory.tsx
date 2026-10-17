@@ -556,8 +556,12 @@ function TableRow({ model, row, focusIndex, setFocusIndex, setSearch, idx, handl
             if (!shouldNativeFileDrag(connection, row.original)) {
                 return;
             }
+            // Start the OS file drag after dragstart returns so macOS keeps the session.
             e.preventDefault();
-            env.electron.startFileDrag(row.original.path);
+            const filePath = row.original.path;
+            window.setTimeout(() => {
+                env.electron.startFileDrag(filePath);
+            }, 0);
         };
         node.addEventListener("dragstart", onDragStart, true);
         return () => node.removeEventListener("dragstart", onDragStart, true);
