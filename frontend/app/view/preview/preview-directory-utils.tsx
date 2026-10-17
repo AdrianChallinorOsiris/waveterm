@@ -14,10 +14,61 @@ export const overwriteError = "set overwrite flag to delete the existing file";
 export const mergeError = "set overwrite flag to delete the existing contents or set merge flag to merge the contents";
 
 export function shouldNativeFileDrag(connection: string, finfo: FileInfo): boolean {
-    if (finfo == null || !isLocalConnName(connection) || finfo.isdir || isParentDirEntry(finfo)) {
+    if (finfo == null || !isLocalConnName(connection) || isParentDirEntry(finfo)) {
         return false;
     }
     return finfo.path != null && finfo.path != "";
+}
+
+export function nativeDragPaths(connection: string, dragged: FileInfo, selected: FileInfo[]): string[] {
+    if (!shouldNativeFileDrag(connection, dragged)) {
+        return [];
+    }
+    const draggedIsSelected = selected.some((entry) => entry?.path === dragged.path);
+    const sources = draggedIsSelected ? selected : [dragged];
+    const paths: string[] = [];
+    for (const entry of sources) {
+        if (!shouldNativeFileDrag(connection, entry) || paths.includes(entry.path)) {
+            continue;
+        }
+        paths.push(entry.path);
+    }
+    return paths;
+}
+
+export type DirectorySelectMode = "replace" | "toggle" | "range";
+
+export function applyDirectorySelection(
+    visualEntries: { path: string }[],
+    selectedPaths: string[],
+    anchorPath: string | null,
+    clickIndex: number,
+    mode: DirectorySelectMode
+): { selectedPaths: string[]; anchorPath: string | null } {
+    const clicked = visualEntries[clickIndex];
+    if (clicked == null || clicked.path == null || clicked.path === "") {
+        return { selectedPaths, anchorPath };
+    }
+    if (mode === "toggle") {
+        const next = selectedPaths.includes(clicked.path)
+            ? selectedPaths.filter((path) => path !== clicked.path)
+            : [...selectedPaths, clicked.path];
+        return { selectedPaths: next, anchorPath: clicked.path };
+    }
+    if (mode === "range") {
+        const anchorIndex = visualEntries.findIndex((entry) => entry.path === anchorPath);
+        const start = Math.min(anchorIndex < 0 ? clickIndex : anchorIndex, clickIndex);
+        const end = Math.max(anchorIndex < 0 ? clickIndex : anchorIndex, clickIndex);
+        const range: string[] = [];
+        for (let i = start; i <= end; i++) {
+            const path = visualEntries[i]?.path;
+            if (path != null && path !== "" && !range.includes(path)) {
+                range.push(path);
+            }
+        }
+        return { selectedPaths: range, anchorPath };
+    }
+    return { selectedPaths: [clicked.path], anchorPath: clicked.path };
 }
 
 export const displaySuffixes = {

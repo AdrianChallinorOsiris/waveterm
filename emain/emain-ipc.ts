@@ -462,13 +462,21 @@ export function initIpcHandlers() {
         );
     });
 
-    electron.ipcMain.on("start-file-drag", (event, filePath: string) => {
+    electron.ipcMain.on("start-file-drag", (event, filePath: string | string[]) => {
         try {
-            if (typeof filePath !== "string" || filePath == "") {
-                return;
+            const requested = Array.isArray(filePath) ? filePath : [filePath];
+            const resolved: string[] = [];
+            for (const candidate of requested) {
+                if (typeof candidate !== "string" || candidate == "") {
+                    continue;
+                }
+                const localPath = resolveLocalDragPath(candidate);
+                if (localPath == null || !fs.existsSync(localPath) || resolved.includes(localPath)) {
+                    continue;
+                }
+                resolved.push(localPath);
             }
-            const resolved = resolveLocalDragPath(filePath);
-            if (resolved == null || !fs.existsSync(resolved)) {
+            if (resolved.length === 0) {
                 console.error("start-file-drag: file not found", filePath);
                 return;
             }
@@ -478,7 +486,8 @@ export function initIpcHandlers() {
                 return;
             }
             event.sender.startDrag({
-                file: resolved,
+                file: resolved[0],
+                files: resolved,
                 icon,
             });
         } catch (e) {

@@ -32,7 +32,9 @@ import { debounce } from "throttle-debounce";
 import "./directorypreview.scss";
 import { EntryManagerOverlay, EntryManagerOverlayProps, EntryManagerType } from "./entry-manager";
 import {
+    applyDirectorySelection,
     cleanMimetype,
+    type DirectorySelectMode,
     getBestUnit,
     getLastModifiedTime,
     getSortIcon,
@@ -41,8 +43,8 @@ import {
     isIconValid,
     makeDirectoryDefaultMenuItems,
     mergeError,
+    nativeDragPaths,
     overwriteError,
-    shouldNativeFileDrag,
 } from "./preview-directory-utils";
 import { type PreviewModel } from "./preview-model";
 import { isParentDirEntry } from "./preview-move";
@@ -90,6 +92,8 @@ interface DirectoryTableProps {
     search: string;
     focusIndex: number;
     setFocusIndex: (_: number) => void;
+    selectedPaths: string[];
+    onRowSelect: (index: number, mode: DirectorySelectMode, visualEntries: FileInfo[]) => void;
     setSearch: (_: string) => void;
     setSelectedPath: (_: string) => void;
     setRefreshVersion: React.Dispatch<React.SetStateAction<number>>;
@@ -106,6 +110,8 @@ function DirectoryTable({
     search,
     focusIndex,
     setFocusIndex,
+    selectedPaths,
+    onRowSelect,
     setSearch,
     setSelectedPath,
     setRefreshVersion,
@@ -297,6 +303,8 @@ function DirectoryTable({
                 search={search}
                 focusIndex={focusIndex}
                 setFocusIndex={setFocusIndex}
+                selectedPaths={selectedPaths}
+                onRowSelect={onRowSelect}
                 setSearch={setSearch}
                 setSelectedPath={setSelectedPath}
                 setRefreshVersion={setRefreshVersion}
@@ -314,6 +322,8 @@ interface TableBodyProps {
     search: string;
     focusIndex: number;
     setFocusIndex: (_: number) => void;
+    selectedPaths: string[];
+    onRowSelect: (index: number, mode: DirectorySelectMode, visualEntries: FileInfo[]) => void;
     setSearch: (_: string) => void;
     setSelectedPath: (_: string) => void;
     setRefreshVersion: React.Dispatch<React.SetStateAction<number>>;
@@ -327,6 +337,8 @@ function TableBody({
     search,
     focusIndex,
     setFocusIndex,
+    selectedPaths,
+    onRowSelect,
     setSearch,
     setRefreshVersion,
     osRef,
@@ -452,6 +464,8 @@ function TableBody({
     const allRows = table.getRowModel().flatRows;
     const dotdotRow = allRows.find((row) => row.getValue("name") === "..");
     const otherRows = allRows.filter((row) => row.getValue("name") !== "..");
+    const visualEntries = [...(dotdotRow ? [dotdotRow.original] : []), ...otherRows.map((row) => row.original)];
+    const selectedEntries = visualEntries.filter((entry) => selectedPaths.includes(entry.path));
 
     return (
         <div className="dir-table-body" ref={bodyRef}>
@@ -484,7 +498,9 @@ function TableBody({
                         model={model}
                         row={dotdotRow}
                         focusIndex={focusIndex}
-                        setFocusIndex={setFocusIndex}
+                        selectedPaths={selectedPaths}
+                        selectedEntries={selectedEntries}
+                        onRowSelect={(index, mode) => onRowSelect(index, mode, visualEntries)}
                         setSearch={setSearch}
                         idx={0}
                         handleFileContextMenu={handleFileContextMenu}
@@ -496,7 +512,9 @@ function TableBody({
                         model={model}
                         row={row}
                         focusIndex={focusIndex}
-                        setFocusIndex={setFocusIndex}
+                        selectedPaths={selectedPaths}
+                        selectedEntries={selectedEntries}
+                        onRowSelect={(index, mode) => onRowSelect(index, mode, visualEntries)}
                         setSearch={setSearch}
                         idx={dotdotRow ? idx + 1 : idx}
                         handleFileContextMenu={handleFileContextMenu}
@@ -512,13 +530,25 @@ type TableRowProps = {
     model: PreviewModel;
     row: Row<FileInfo>;
     focusIndex: number;
-    setFocusIndex: (_: number) => void;
+    selectedPaths: string[];
+    selectedEntries: FileInfo[];
+    onRowSelect: (index: number, mode: DirectorySelectMode) => void;
     setSearch: (_: string) => void;
     idx: number;
     handleFileContextMenu: (e: any, finfo: FileInfo) => Promise<void>;
 };
 
-function TableRow({ model, row, focusIndex, setFocusIndex, setSearch, idx, handleFileContextMenu }: TableRowProps) {
+function TableRow({
+    model,
+    row,
+    focusIndex,
+    selectedPaths,
+    selectedEntries,
+    onRowSelect,
+    setSearch,
+    idx,
+    handleFileContextMenu,
+}: TableRowProps) {
     const env = useWaveEnv<PreviewEnv>();
     const dirPath = useAtomValue(model.statFilePath);
     const connection = useAtomValue(model.connectionImmediate);
@@ -553,23 +583,26 @@ function TableRow({ model, row, focusIndex, setFocusIndex, setSearch, idx, handl
             return;
         }
         const onDragStart = (e: DragEvent) => {
-            if (!shouldNativeFileDrag(connection, row.original)) {
+            const paths = nativeDragPaths(connection, row.original, selectedEntries);
+            if (paths.length === 0) {
                 return;
             }
             // Start the OS file drag after dragstart returns so macOS keeps the session.
             e.preventDefault();
-            const filePath = row.original.path;
             window.setTimeout(() => {
-                env.electron.startFileDrag(filePath);
+                env.electron.startFileDrag(paths);
             }, 0);
         };
         node.addEventListener("dragstart", onDragStart, true);
         return () => node.removeEventListener("dragstart", onDragStart, true);
-    }, [connection, env.electron, row.original]);
+    }, [connection, env.electron, row.original, selectedEntries]);
 
     return (
         <div
-            className={clsx("dir-table-body-row", { focused: focusIndex === idx })}
+            className={clsx("dir-table-body-row", {
+                focused: focusIndex === idx,
+                selected: selectedPaths.includes(row.original.path),
+            })}
             data-rowindex={idx}
             onDoubleClick={() => {
                 const newFileName = row.getValue("path") as string;
@@ -577,7 +610,10 @@ function TableRow({ model, row, focusIndex, setFocusIndex, setSearch, idx, handl
                 setSearch("");
                 globalStore.set(model.directorySearchActive, false);
             }}
-            onClick={() => setFocusIndex(idx)}
+            onClick={(e) => {
+                const mode: DirectorySelectMode = e.shiftKey ? "range" : e.metaKey || e.ctrlKey ? "toggle" : "replace";
+                onRowSelect(idx, mode);
+            }}
             onContextMenu={(e) => handleFileContextMenu(e, row.original)}
             ref={dragRef}
         >
@@ -607,6 +643,8 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const env = useWaveEnv<PreviewEnv>();
     const [searchText, setSearchText] = useState("");
     const [focusIndex, setFocusIndex] = useState(0);
+    const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+    const selectionAnchorRef = useRef<string | null>(null);
     const [unfilteredData, setUnfilteredData] = useState<FileInfo[]>([]);
     const showHiddenFiles = useAtomValue(model.showHiddenFiles);
     const [selectedPath, setSelectedPath] = useState("");
@@ -696,19 +734,19 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 return true;
             }
             if (checkKeyPressed(waveEvent, "ArrowUp")) {
-                setFocusIndex((idx) => Math.max(idx - 1, 0));
+                moveDirectoryFocus(Math.max(focusIndex - 1, 0));
                 return true;
             }
             if (checkKeyPressed(waveEvent, "ArrowDown")) {
-                setFocusIndex((idx) => Math.min(idx + 1, filteredData.length - 1));
+                moveDirectoryFocus(Math.min(focusIndex + 1, filteredData.length - 1));
                 return true;
             }
             if (checkKeyPressed(waveEvent, "PageUp")) {
-                setFocusIndex((idx) => Math.max(idx - PageJumpSize, 0));
+                moveDirectoryFocus(Math.max(focusIndex - PageJumpSize, 0));
                 return true;
             }
             if (checkKeyPressed(waveEvent, "PageDown")) {
-                setFocusIndex((idx) => Math.min(idx + PageJumpSize, filteredData.length - 1));
+                moveDirectoryFocus(Math.min(focusIndex + PageJumpSize, filteredData.length - 1));
                 return true;
             }
             if (checkKeyPressed(waveEvent, "Enter")) {
@@ -747,10 +785,30 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         };
     }, [filteredData, selectedPath, searchText, focusIndex]);
 
+    const moveDirectoryFocus = (nextIndex: number) => {
+        const bounded = filteredData.length === 0 ? 0 : Math.max(0, Math.min(nextIndex, filteredData.length - 1));
+        setFocusIndex(bounded);
+        const path = filteredData[bounded]?.path ?? null;
+        selectionAnchorRef.current = path;
+        setSelectedPaths(path ? [path] : []);
+    };
+
+    const handleRowSelect = (index: number, mode: DirectorySelectMode, visualEntries: FileInfo[]) => {
+        const next = applyDirectorySelection(visualEntries, selectedPaths, selectionAnchorRef.current, index, mode);
+        selectionAnchorRef.current = next.anchorPath;
+        setSelectedPaths(next.selectedPaths);
+        setFocusIndex(index);
+    };
+
     useEffect(() => {
         if (filteredData.length != 0 && focusIndex > filteredData.length - 1) {
             setFocusIndex(filteredData.length - 1);
         }
+        const live = new Set(filteredData.map((entry) => entry.path));
+        setSelectedPaths((current) => {
+            const next = current.filter((path) => live.has(path));
+            return next.length === current.length ? current : next;
+        });
     }, [filteredData]);
 
     const entryManagerPropsAtom = useState(
@@ -936,6 +994,8 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     search={searchText}
                     focusIndex={focusIndex}
                     setFocusIndex={setFocusIndex}
+                    selectedPaths={selectedPaths}
+                    onRowSelect={handleRowSelect}
                     setSearch={setSearchText}
                     setSelectedPath={setSelectedPath}
                     setRefreshVersion={setRefreshVersion}
